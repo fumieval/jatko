@@ -15,8 +15,9 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Lib
-  build-depends:       base >= 4.7 && < 5
+  exposed-modules:     Core
+  build-depends:       base >= 4.7 && < 5, mtl, containers, free, comonad
+  ghc-options: -Wall
   default-language:    Haskell2010
 
 executable jatko-exe
