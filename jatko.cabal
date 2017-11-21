@@ -15,8 +15,14 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Core
+  exposed-modules:
+    Jatko
+    Jatko.Core
+    Jatko.Compiler
+    Jatko.TypeCheck
+    Jakto.Syntax
   build-depends:       base >= 4.7 && < 5, mtl, containers, free, comonad
+    , trifecta, parsers
   ghc-options: -Wall
   default-language:    Haskell2010
 
