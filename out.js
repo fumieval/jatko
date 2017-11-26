@@ -1,0 +1,1 @@
+var main = function(cont){return function(str){return (function(cont){ console.log(str); cont(null); });}("hello,")(function(a){return function(str){return (function(cont){ console.log(str); cont(null); });}("world")(function(a){return cont(42);});});};

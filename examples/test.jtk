@@ -1,20 +1,27 @@
 infixr 1 ->
 infixl 1 +
-constructor Type
-constructor Int
-constructor JSAction
-constructor JSCont
-constructor (->)
-constructor Unknown
+infixr 0 $
 
 (+) = \x y -> [|x + y|] : Int -> Int -> Int
+($) = \x -> x
 
 constructor Int : Type
+constructor String : Type
 constructor (->) : Type -> Type -> Type
 constructor JSAction : Type -> Type
-constructor JSCont : forall a. ((a -> Unknown) -> Unknown) -> JSAction a
+constructor JSCont : forall b r. ((b -> r) -> r) -> JSAction b
 
-registry Program m = forall a b. m a -> (a -> m b) -> m b
-register Program (JSAction x) = \m k -> JSCont (\cont -> case m of JSCont f -> f (\a -> case (k a) of JSCont c -> c cont))
+register return JSAction = \a -> JSCont $ \cont -> cont a
+register bind JSAction = \m k -> JSCont $ \cont -> case m of
+  JSCont f -> f $ \a -> case k a of
+    JSCont c -> c cont
 
-main = Program
+console'log = \str -> [|function(cont){ console.log(str); cont(null); }|]
+  : String -> JSAction Unit
+
+endpoint = "https://api.github.com/"
+
+main = (do
+  console'log "hello,";
+  console'log "world";
+  return JSAction 42) JSAction

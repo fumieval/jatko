@@ -22,7 +22,7 @@ library
     Jatko.TypeCheck
     Jakto.Syntax
   build-depends:       base >= 4.7 && < 5, mtl, containers, free, comonad
-    , trifecta, parsers
+    , trifecta, parsers, transformers
   ghc-options: -Wall
   default-language:    Haskell2010
 

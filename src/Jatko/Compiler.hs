@@ -2,6 +2,13 @@ module Jatko.Compiler where
 
 import Jatko.Core
 import Data.List (intercalate)
+import Data.Char
+
+mangle :: String -> String
+mangle = concatMap go where
+  go c
+    | isAlphaNum c = pure c
+    | otherwise = "_" ++ show (ord c)
 
 litToJS :: Literal -> JavaScript
 litToJS (LInt x) = show x
@@ -13,14 +20,15 @@ parens :: JavaScript -> JavaScript
 parens x = "(" ++ x ++ ")"
 
 compile :: Expr Name -> JavaScript
-compile (Var i) = "v" ++ show i
+compile (Var v) = mangle v
 compile (Lit l) = litToJS l
 compile (Con name xs) = "[" ++ intercalate "," (show name : map compile xs) ++ "]"
 compile (f :$ a) = compile f ++ parens (compile a)
-compile (Lam v e) = concat ["function(", v, "){return ", compile e, ";}"]
+compile (Lam v e) = concat ["function(", mangle v, "){return ", compile e, ";}"]
+compile (Coerce e) = compile e
 compile (Case cs) = concat
   [ "function(con){"
-  , "var clauses = {}"
+  , "var clauses = {};"
   , concat [concat
     ["clauses[", show name, "]="
     , "function(args){"

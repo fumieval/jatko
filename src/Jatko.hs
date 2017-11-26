@@ -5,19 +5,24 @@ import Jatko.Core
 import Jatko.Syntax
 import Jatko.TypeCheck
 import Text.Trifecta
-import Control.Monad.Trans.Free
 import qualified Data.Map as M
 import Control.Monad
-import Control.Monad.Reader
+import Jatko.Pretty
+import System.IO
 
-typecheck :: FilePath -> IO ()
-typecheck path = parseFromFile parseWhole "examples/test.jtk" >>= \case
+build :: FilePath -> IO ()
+build path = parseFromFile parseWhole path >>= \case
   Just decs -> do
-    print $ decConstructors decs
-    forM_ (M.keys $ decVars decs) $ \k -> do
+    h <- openFile "out.js" WriteMode
+    forM_ (M.toList $ decVars decs) $ \(k, e) -> do
       putStr $ k ++ ": "
-      r <- runTC decs $ do
-        env <- ask
-        resolve decs $ wrap $ Unbound k env pure
-      print r
+      r <- runTC decs $ unbound k
+      putStrLn $ ppExpr decs NoPrecedence r
+      when (k == "main") $
+        hPutStrLn h $ "var " ++ mangle k ++ " = " ++ compile (simplify 10 decs e) ++ ";"
+    {-
+    forM_ (M.toList $ decRegistries decs) $ \(k, e) -> do
+      hPutStrLn h $ "var " ++ mangle k ++ " = " ++ compile (simplify 10 decs $ Case e) ++ ";"
+    -}
+    hClose h
   Nothing -> return ()

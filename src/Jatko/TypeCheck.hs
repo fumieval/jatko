@@ -5,7 +5,8 @@ import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict as M
 import Control.Monad.State.Strict
 import Control.Monad.Reader
-import Control.Monad.Trans.Free
+import Control.Monad.Trans.Cont
+import Jatko.Pretty
 
 import Jatko.Core
 
@@ -13,17 +14,16 @@ import Debug.Trace
 
 data TCState = TCState
   { tcVars :: !(IM.IntMap Type)
-  , tcFresh :: !Int }
+  , tcFresh :: !Int
+  }
   deriving Show
 
-fresh :: TCBase Int
+fresh :: TC Int
 fresh = do
   tc <- get
   let i = tcFresh tc
-  put $ tc { tcFresh = i + 1}
+  put $ tc { tcFresh = i + 1 }
   return i
-
-data Var = VarName !Name | TyVar !Int deriving (Show, Eq)
 
 data TCEnv = TCEnv
   { varTypeBinding :: M.Map Name Type
@@ -31,21 +31,23 @@ data TCEnv = TCEnv
   , tcStack :: [String]
   }
 
-type TCBase = ReaderT TCEnv (StateT TCState (Either String))
-type TC = FreeT (Unbound Type) TCBase
+type TC = ReaderT TCEnv (StateT TCState (Either String))
 
 typeError :: String -> TC a
 typeError e = do
   env <- ask
-  lift . lift . lift $ Left $ unlines (e : tcStack env)
+  lift . lift $ Left $ unlines (e : tcStack env)
+
 
 type Type = Expr Var
 
-with :: String -> TC a -> TC a
-with s = local (\tc -> tc {tcStack = s : tcStack tc})
+with :: ((Expr Var -> String) -> String) -> TC a -> TC a
+with s m = do
+  decs <- asks tcDecs
+  local (\tc -> tc {tcStack = s (ppExpr decs NoPrecedence) : tcStack tc}) $ m
 
 varIs :: Var -> Type -> TC ()
-varIs (TyVar i) e = do
+varIs (TyVar i) e = with (\pp -> show i ++ " <- " ++ pp e) $ do
   tc <- get
   forM_ (IM.lookup i $ tcVars tc)
     $ \e' -> unifyType e e'
@@ -54,7 +56,7 @@ varIs (VarName name) t = do
   env <- ask
   case M.lookup name $ varTypeBinding env of
     Just t' -> unifyType t t'
-    Nothing -> wrap $ Unbound name env $ unifyType t
+    Nothing -> unbound name >>= unifyType t
 
 apply :: Expr Var -> Expr Var -> Expr Var
 apply (Lam v e) a = e >>= \v' -> if VarName v == v' then a else Var v'
@@ -63,7 +65,7 @@ apply (e ::: _) x = apply e x
 apply a b = a :$ b
 
 unifyType :: Type -> Type -> TC ()
-unifyType s0 t0 = with ("unify: " ++ show s0 ++ " === " ++ show t0) $ go s0 t0 where
+unifyType s0 t0 = with (\pp -> "unify: " ++ pp s0 ++ " === " ++ pp t0) $ go s0 t0 where
   go (Var a) (Var b) | a == b = return ()
   go b (Var a) = varIs a b
   go (Var a) b = varIs a b
@@ -76,14 +78,20 @@ unifyType s0 t0 = with ("unify: " ++ show s0 ++ " === " ++ show t0) $ go s0 t0 w
   go a (b :$ c) = do
     let t = apply b c
     unifyType a t
-  go c0@(Con name xs) c1@(Con name' ys)
+  go (Con name xs) (Con name' ys)
     | name == name', length xs == length ys = sequence_
       $ zipWith unifyType xs ys
     | otherwise = typeError "Couldn't match"
+  go (Forall v e) t = withVar $ \q -> go t (e >>= \case
+    VarName v' | v == v' -> q
+    x -> Var x)
+  go t (Forall v e) = withVar $ \q -> go t (e >>= \case
+    VarName v' | v == v' -> q
+    x -> Var x)
   go (Lam _ _) (Lam _ _) = typeError "Can't unify two quantified types"
   go a b = typeError $ "Couldn't match " ++ show a ++ " with " ++ show b
 
-runTC :: Declarations -> TCBase a -> IO a
+runTC :: Declarations -> TC a -> IO a
 runTC decs m = case evalStateT (runReaderT m $ TCEnv mempty decs []) (TCState mempty 0) of
   Right a -> return a
   Left str -> putStrLn str >> fail ""
@@ -94,24 +102,17 @@ typeLit (LDbl _) = pure $ Con "Double" []
 typeLit (LStr _) = pure $ Con "String" []
 typeLit (LJavaScript _) = freshVar
 
-data Unbound r a = Unbound !Name !TCEnv (r -> a) deriving Functor
-
 unbound :: Name -> TC Type
 unbound name = do
   env <- ask
-  wrap $ Unbound name env pure
-
-resolve :: Declarations -> TC a -> TCBase a
-resolve decs m = runFreeT m >>= \case
-  Pure a -> return a
-  Free (Unbound name env cont) -> local (\tc -> env) $ case M.lookup name $ decVars decs of
-    Just dec -> resolve decs $ typeExpr dec >>= cont
-    Nothing -> case M.lookup name $ decRegistries decs of
-      Just dec -> resolve decs $ typeExpr (Case dec) >>= cont
-      Nothing -> resolve decs $ typeError $ "Not in scope: " ++ name
+  case M.lookup name $ decVars $ tcDecs env of
+    Just dec -> typeExpr dec
+    Nothing -> case M.lookup name $ decRegistries $ tcDecs env of
+      Just dec -> typeExpr (Case dec)
+      Nothing -> typeError $ "Not in scope: " ++ name
 
 refine :: Type -> TC Type
-refine ty = do
+refine ty = with (\pp -> "refine: " ++ pp ty) $ do
   tc <- get
   let go e = e >>= \case
         TyVar i -> case IM.lookup i $ tcVars tc of
@@ -120,23 +121,33 @@ refine ty = do
         VarName name -> Var $ VarName name
   return $ go ty
 
+bindTypes :: [(Name, Type)] -> TC a -> TC a
+bindTypes m = local (\tc -> tc
+  { varTypeBinding = M.fromList m `M.union` varTypeBinding tc
+  , tcStack = [v ++ " <- " ++ show t | (v, t) <- m] ++ tcStack tc })
+
+withVar :: (Type -> TC a) -> TC a
+withVar k = do
+  i <- fresh
+  let name = "$" ++ show i
+  let t = Var $ TyVar i
+  bindTypes [(name, t)] (k t)
+
 typeExpr :: Expr Name -> TC Type
-typeExpr expr = with ("infer: " ++ show expr) $ case expr of
+typeExpr expr = with (\pp -> "infer: " ++ pp (fmap VarName expr)) $ (>>=refine) $ case expr of
   Var name -> do
     env <- ask
     case M.lookup name $ varTypeBinding env of
       Just t -> pure t
       Nothing -> unbound name
   Lit l -> typeLit l
-  a :$ b -> do
-    tRes <- freshVar
+  a :$ b -> withVar $ \tRes -> do
     tFun <- typeExpr a
     tArg <- typeExpr b
     unifyType tFun $ Con "->" [tArg, tRes]
-    refine tRes
-  Lam v a -> do
-    tArg <- freshVar
-    tBody <- local (\env -> env { varTypeBinding = M.insert v tArg (varTypeBinding env) }) $ typeExpr a
+    return tRes
+  Lam v a -> withVar $ \tArg -> do
+    tBody <- bindTypes [(v, tArg)] $ typeExpr a
     return $ Con "->" [tArg, tBody]
   e ::: sig -> do
     t <- typeExpr e
@@ -145,20 +156,17 @@ typeExpr expr = with ("infer: " ++ show expr) $ case expr of
     return t'
   Forall v e -> do
     qv <- freshVar
-    local (\env -> env { varTypeBinding = M.insert v qv (varTypeBinding env) })
-      $ typeExpr e
-  Case clauses -> do
-    tArg <- freshVar
-    tRes <- freshVar
+    bindTypes [(v, qv)] $ typeExpr e
+  Case clauses -> withVar $ \tArg -> withVar $ \tRes -> do
     env <- ask
     forM_ clauses $ \(con, vs, c) -> case M.lookup con $ decConstructors $ tcDecs env of
-      Just (qs, ts, t) | length vs == length ts -> do
-        unifyType tArg $ fmap VarName t
-        freshVars <- replicateM (length qs) freshVar -- these shouldn't appear in the result
-        local (\tc -> tc { varTypeBinding = M.fromList (zip qs freshVars)
-          `M.union` M.fromList (zip vs $ map (fmap VarName) ts)
-          `M.union` varTypeBinding tc }) $ do
-            typeExpr c >>= unifyType tRes
+      Just (qs, ts, t) | length vs <= length ts -> flip runContT return $ do
+        qvars <- replicateM (length qs) (ContT withVar)
+        let subst' = foldr (uncurry subst) `flip` zip (map VarName qs) qvars
+        let ts' = map (subst' . fmap VarName) ts
+        lift $ unifyType tArg $ partialCon (subst' $ fmap VarName t) (drop (length vs) ts')
+        lift $ bindTypes (zip vs ts') $ do
+          typeExpr c >>= unifyType tRes
       Just _ -> typeError "constructor arguments mismatch"
       Nothing -> typeError "constructor not found"
     return $ Con "->" [tArg, tRes]
@@ -166,18 +174,19 @@ typeExpr expr = with ("infer: " ++ show expr) $ case expr of
     env <- ask
     case M.lookup name $ decConstructors $ tcDecs env of
       Nothing -> typeError $ "Missing con definition: " ++ name
-      Just (qs, ts, t) -> do
-        qvars <- replicateM (length qs) freshVar
-        local
-          (\tc -> tc {varTypeBinding = M.fromList (zip qs qvars) `M.union` varTypeBinding tc})
-          $ do
-            ys <- traverse typeExpr xs
-            sequence_ $ zipWith unifyType (map (fmap VarName) ts) ys
-        return $ foldr (\a r -> Con "->" [fmap VarName a, r])
-          (fmap VarName t)
-          (drop (length xs) ts)
+      Just (qs, ts, t) -> flip runContT return $ do
+        qvars <- replicateM (length qs) (ContT withVar)
+        let subst' = foldr (uncurry subst) `flip` zip (map VarName qs) qvars
+        let ts' = map subst' $ map (fmap VarName) ts
+        lift $ bindTypes (zip qs qvars) $ do
+          ys <- traverse typeExpr xs
+          sequence_ $ zipWith unifyType ts' ys
+        return $ partialCon (subst' $ fmap VarName t) $ drop (length xs) ts'
+
+partialCon :: Foldable t => Expr a -> t (Expr a) -> Expr a
+partialCon = foldr (\a r -> Con "->" [a, r])
 
 freshVar :: TC Type
 freshVar = do
-  i <- lift fresh
+  i <- fresh
   return $ Var $ TyVar i
