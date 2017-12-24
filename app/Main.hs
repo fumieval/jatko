@@ -1,4 +1,9 @@
+{-# LANGUAGE LambdaCase #-}
 module Main where
+import System.Environment
+import Jatko
 
 main :: IO ()
-main = return ()
+main = getArgs >>= \case
+  [path] -> build path
+  _ -> fail "jatko PATH"
