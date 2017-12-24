@@ -72,7 +72,7 @@ blockSome m = some $ do
   replicateM_ n space <?> "indentation"
   skipMany (satisfy $ \c -> c /= '\n' && isSpace c)
   a <- m
-  newline
+  _ <- newline
   return a
 
 instance (MonadPlus m, TokenParsing m) => TokenParsing (Offside m) where
@@ -81,7 +81,7 @@ instance (MonadPlus m, TokenParsing m) => TokenParsing (Offside m) where
   someSpace = do
     skipMany (satisfy $ \c -> c /= '\n' && isSpace c)
     (<|> pure ()) $ try $ do
-      some newline
+      _ <- some newline
       n <- currentIndent
       replicateM_ n space <?> "indentation"
       ss <- many (satisfy $ \c -> c /= '\n' && isSpace c)
@@ -94,7 +94,7 @@ instance (MonadPlus m, TokenParsing m) => TokenParsing (Offside m) where
 
   token p = do
     n <- currentIndent
-
     r <- p
+    someSpace
     Offside $ put n
     return r

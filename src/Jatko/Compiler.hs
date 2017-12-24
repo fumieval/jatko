@@ -39,3 +39,4 @@ compile (Case cs) = concat
   , "}()"
   ]
 compile (e ::: _) = compile e
+compile (Forall _ _) = error "unsupported"

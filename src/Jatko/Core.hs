@@ -4,7 +4,6 @@ module Jatko.Core where
 import Control.Monad
 import qualified Data.Map.Strict as M
 import Text.Parser.Expression (Assoc)
-import Debug.Trace
 
 type Name = String
 
@@ -60,7 +59,7 @@ simplify phase decs expr = case expr of
     | Just cs <- M.lookup v (decRegistries decs) -> simplify phase decs $ Case cs
     | Just d <- M.lookup v (decVars decs) -> simplify phase decs d
   Con con xs :$ x -> simplify phase decs $ Con con (xs ++ [x])
-  Con con [x] -> Coerce $ simplify phase decs x
+  Con _ [x] -> Coerce $ simplify phase decs x
   Con con xs -> Con con $ map (simplify phase decs) xs
   Case cs :$ Con con xs
     | [e] <- [foldr (uncurry subst) e $ zip vs xs | (con', vs, e) <- cs, con == con']

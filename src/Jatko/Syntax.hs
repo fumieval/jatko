@@ -14,7 +14,6 @@ import qualified Data.Map.Strict as M
 
 import Jatko.Core
 import Jatko.Syntax.Offside
-import Debug.Trace
 
 data ParserEnv = ParserEnv
   { opTable :: OperatorTable Parser' (Expr Name)
@@ -22,7 +21,7 @@ data ParserEnv = ParserEnv
   }
 
 isConstructor :: Name -> Bool
-isConstructor (c : cs) | isUpper c = True
+isConstructor (c : _) | isUpper c = True
 isConstructor "->" = True
 isConstructor _ = False
 
@@ -88,8 +87,8 @@ parseCase = do
     con <- identifier
     vs <- many identifier
     symbol "->"
-    e <- expr
-    return (con, vs, e)
+    e' <- expr
+    return (con, vs, e')
   return $ Case clauses :$ e
 
 term :: Parser' (Expr Name)
@@ -125,7 +124,6 @@ parseDo = do
     m <- expr
     return (v, m)
     <?> "statement"
-  traceShowM ss
   return $ Lam "#m" $ foldr
     (\(v, m) r -> Var "bind" :$ Var "#m" :$ m :$ Lam (maybe "_" id v) r)
     (snd (last ss)) (init ss)

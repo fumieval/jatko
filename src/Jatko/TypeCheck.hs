@@ -10,8 +10,6 @@ import Jatko.Pretty
 
 import Jatko.Core
 
-import Debug.Trace
-
 data TCState = TCState
   { tcVars :: !(IM.IntMap Type)
   , tcFresh :: !Int
@@ -182,6 +180,7 @@ typeExpr expr = with (\pp -> "infer: " ++ pp (fmap VarName expr)) $ (>>=refine) 
           ys <- traverse typeExpr xs
           sequence_ $ zipWith unifyType ts' ys
         return $ partialCon (subst' $ fmap VarName t) $ drop (length xs) ts'
+  Coerce _ -> freshVar
 
 partialCon :: Foldable t => Expr a -> t (Expr a) -> Expr a
 partialCon = foldr (\a r -> Con "->" [a, r])

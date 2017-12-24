@@ -34,3 +34,4 @@ ppExpr ds _ (Case clauses) = "\\case"
   ++ unwords [show con ++ unwords vs ++ " -> " ++ ppExpr ds NoPrecedence e | (con, vs, e) <- clauses]
 ppExpr ds _ (a ::: b) = ppExpr ds NoPrecedence a ++ " : " ++ ppExpr ds NoPrecedence b
 ppExpr ds _ (Forall v e) = "∀" ++ v ++ "." ++ ppExpr ds NoPrecedence e
+ppExpr ds p (Coerce e) = ppExpr ds p e

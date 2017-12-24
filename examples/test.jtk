@@ -16,11 +16,8 @@ register bind JSAction = \m k -> JSCont $ \cont -> case m of
   JSCont f -> f $ \a -> case k a of
     JSCont c -> c cont
 
-console'log = \str -> [|function(cont){ console.log(str); cont(null); }|]
+console'log = [|function(str){ return function(cont){console.log(str); cont(null);}|]
   : String -> JSAction Unit
-
-endpoint = "https://api.github.com/"
-
 main = (do
   console'log "hello,";
   console'log "world";
